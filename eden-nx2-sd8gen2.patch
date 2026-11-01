@@ -1,0 +1,102 @@
+diff -ruN a/.github/workflows/android-build.yml b/.github/workflows/android-build.yml
+--- a/.github/workflows/android-build.yml	1970-01-01 00:00:00.000000000 +0000
++++ b/.github/workflows/android-build.yml	2026-11-01 03:28:56.278332593 +0000
+@@ -0,0 +1,61 @@
++# Android APK of this fork, built with .ci/android/build.sh.
++#
++# Run it from the Actions tab (Run workflow). When it finishes, the APK is attached to the run as an
++# artifact. It is signed with the debug key in src/android/app/debug.keystore, so it installs as is.
++
++name: Android build
++
++on:
++  workflow_dispatch:
++    inputs:
++      build_type:
++        description: Release es el más rápido en el teléfono (RelWithDebInfo lee nx2_env.txt)
++        type: choice
++        options:
++          - Release
++          - RelWithDebInfo
++        default: Release
++      cmake_args:
++        description: Argumentos extra de CMake (vacío = sin optimizar para un SoC concreto)
++        type: string
++        default: -DYUZU_BUILD_PRESET=sd8gen2
++
++permissions:
++  contents: read
++
++jobs:
++  android:
++    runs-on: ubuntu-24.04
++    timeout-minutes: 360
++    env:
++      BUILD_TYPE: ${{ inputs.build_type }}
++      CMAKE_ARGS: ${{ inputs.cmake_args }}
++    steps:
++      - uses: actions/checkout@v4
++
++      - name: Free disk space
++        run: |
++          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost
++          df -h /
++
++      - uses: actions/setup-java@v4
++        with:
++          distribution: temurin
++          java-version: "17"
++
++      - name: Install glslang and Android SDK components
++        run: |
++          sudo apt-get update
++          sudo apt-get install -y glslang-tools
++          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
++          yes | "$SDKMANAGER" --licenses > /dev/null || true
++          "$SDKMANAGER" "platforms;android-36" "ndk;28.2.13676358" "cmake;3.31.5"
++
++      - name: Build
++        run: sh .ci/android/build.sh -t standard -b "$BUILD_TYPE" $CMAKE_ARGS
++
++      - uses: actions/upload-artifact@v4
++        with:
++          name: eden-sx2a-${{ inputs.build_type }}
++          path: artifacts/*.apk
++          if-no-files-found: error
+diff -ruN a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt	2026-10-31 23:14:20.000000000 +0000
++++ b/CMakeLists.txt	2026-11-01 03:28:47.523141998 +0000
+@@ -343,7 +343,7 @@
+         endif()
+     elseif(ARCHITECTURE_arm64)
+         # See https://gcc.gnu.org/onlinedocs/gcc/AArch64-Options.html
+-        set(YUZU_BUILD_PRESET "custom" CACHE STRING "Build preset to use. One of: custom, generic, optimized, armv9, native")
++        set(YUZU_BUILD_PRESET "custom" CACHE STRING "Build preset to use. One of: custom, generic, optimized, armv9, sd8gen2, native")
+         set(mtune generic)
+         if (${YUZU_BUILD_PRESET} STREQUAL "generic")
+             set(march armv8-a)
+@@ -351,6 +351,11 @@
+             set(march armv8.2-a+lse+rcpc)
+         elseif (${YUZU_BUILD_PRESET} STREQUAL "armv9")
+             set(march armv9-a)
++        elseif (${YUZU_BUILD_PRESET} STREQUAL "sd8gen2")
++            # Snapdragon 8 Gen 2 (Cortex-X3/A715/A710/A510). armv9-a implies SVE2, which this SoC's
++            # kernel may not expose, so it is switched off.
++            set(march armv9-a+nosve+nosve2)
++            set(mtune cortex-x3)
+         endif()
+     endif()
+ 
+diff -ruN a/NX2_ANDROID.md b/NX2_ANDROID.md
+--- a/NX2_ANDROID.md	2026-10-31 23:14:20.000000000 +0000
++++ b/NX2_ANDROID.md	2026-11-01 03:28:51.119680114 +0000
+@@ -71,6 +71,9 @@
+ - Eden-NS2's libgav1 comes through CMake `FetchContent`, so the first configure needs network.
+ - Release builds should map source paths out of the binary:
+   `M=-ffile-prefix-map=$PWD/=; sh .ci/android/build.sh -t standard -b Release "-DCMAKE_C_FLAGS=$M" "-DCMAKE_CXX_FLAGS=$M"`
++- Snapdragon 8 Gen 2 phones: add `-DYUZU_BUILD_PRESET=sd8gen2` (`-march=armv9-a` without SVE, tuned for the
++  Cortex-X3). That APK is for recent phones only. `.github/workflows/android-build.yml` builds it on GitHub
++  (Actions tab, Run workflow).
+ - `tools/nx2/android/` holds phone scripts (build/install, launch over adb, memory watch, log and crash collection).
+ 
+ ## Debugging on a phone
