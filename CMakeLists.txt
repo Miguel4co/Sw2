@@ -354,7 +354,7 @@ if (CXX_GCC OR CXX_CLANG)
         elseif (${YUZU_BUILD_PRESET} STREQUAL "sd8gen2")
             # Snapdragon 8 Gen 2 (Cortex-X3/A715/A710/A510). armv9-a implies SVE2, which this SoC's
             # kernel may not expose, so it is switched off.
-            set(march armv9-a+nosve+nosve2)
+            set(march armv8.5-a)
             set(mtune cortex-x3)
         endif()
     endif()
